@@ -1,0 +1,13 @@
+[Unit]
+Description=eTomada DNS watcher
+After=dnsmasq.service
+Requires=dnsmasq.service
+
+[Service]
+Type=simple
+ExecStart=/opt/etomada-log-server/etomada-dns-watch.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
