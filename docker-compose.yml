@@ -1,7 +1,7 @@
 services:
   etomada-log-server:
     build: .
-    container_name: etomada-log-server
+    container_name: etomada-server
     restart: unless-stopped
 
     ports:

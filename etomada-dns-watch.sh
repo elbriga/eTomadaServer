@@ -1,7 +1,7 @@
 #!/bin/bash
 
-FILE="/opt/etomada-log-server/data/etomadas.hosts"
-FILE2="/opt/etomada-log-server/data/casa.hosts"
+FILE="/opt/eTomadaServer/data/etomadas.hosts"
+FILE2="/opt/eTomadaServer/data/casa.hosts"
 
 echo "Monitorando $FILE e $FILE2"
 

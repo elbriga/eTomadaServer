@@ -5,7 +5,7 @@ Requires=dnsmasq.service
 
 [Service]
 Type=simple
-ExecStart=/opt/etomada-log-server/etomada-dns-watch.sh
+ExecStart=/opt/eTomadaServer/etomada-dns-watch.sh
 Restart=always
 RestartSec=2
 

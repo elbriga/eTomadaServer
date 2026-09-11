@@ -19,7 +19,7 @@ DNS_DOMAIN = "etomada"
 
 DB_PATH = Path("/app/data/logs.db")
 
-app = FastAPI(title="eTomada Log Server")
+app = FastAPI(title="eTomada Server")
 
 app.mount(
     "/static",
