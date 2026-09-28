@@ -5,8 +5,11 @@ import sqlite3
 import os
 import tempfile
 
+import asyncio
+import json
+
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from fastapi.templating import Jinja2Templates
@@ -20,6 +23,8 @@ DNS_DOMAIN = "etomada"
 DB_PATH = Path("/app/data/logs.db")
 
 app = FastAPI(title="eTomada Server")
+
+sse_clients: set[asyncio.Queue] = set()
 
 app.mount(
     "/static",
@@ -49,6 +54,13 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+async def sse_log(log_id: int):
+    event = {
+        "id": log_id
+    }
+
+    for queue in list(sse_clients):
+        await queue.put(event)
 
 def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -196,7 +208,7 @@ def index(request: Request):
 
 
 @app.post("/api/log")
-def receive_log(log: LogEntry, request: Request):
+async def receive_log(log: LogEntry, request: Request):
 
     ip = request.client.host
 
@@ -228,6 +240,8 @@ def receive_log(log: LogEntry, request: Request):
     log_id = cursor.lastrowid
 
     conn.close()
+
+    await sse_log(log_id)
 
     return {
         "ok": True,
@@ -330,3 +344,41 @@ def register_dns(register: DNSRegister):
         "hostname": fqdn,
         "ip": register.ip
     }
+
+@app.get("/api/events")
+async def events(request: Request):
+
+    queue = asyncio.Queue()
+    sse_clients.add(queue)
+
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=30
+                    )
+
+                    yield f"event: log\n"
+                    yield f"data: {json.dumps(event)}\n\n"
+
+                except asyncio.TimeoutError:
+                    # Keepalive para proxies/browser não matarem conexão
+                    yield ": keepalive\n\n"
+
+        finally:
+            sse_clients.discard(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

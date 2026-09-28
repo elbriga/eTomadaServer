@@ -146,3 +146,23 @@ function escapeHtml(value) {
 
 carregarNodos();
 carregarLogs();
+
+let reloadTimer = null;
+
+const events = new EventSource("/api/events");
+
+events.addEventListener("log", () => {
+  clearTimeout(reloadTimer);
+
+  reloadTimer = setTimeout(() => {
+    carregarLogs();
+  }, 100);
+});
+
+events.onopen = () => {
+  console.log("SSE conectado");
+};
+
+events.onerror = () => {
+  console.log("SSE desconectado");
+};
