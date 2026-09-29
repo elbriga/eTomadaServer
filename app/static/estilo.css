@@ -97,6 +97,7 @@ th {
 td {
   padding-right: 10px;
   border-bottom: 1px solid #eee;
+  min-width: 100px;
 }
 
 tr:hover {
