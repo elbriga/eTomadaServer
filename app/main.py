@@ -49,6 +49,18 @@ class DNSRegister(BaseModel):
     hostname: str
     ip: str
 
+class EventDevice(BaseModel):
+    valor: float | None = None
+    status: int | None = None
+    estado: int | None = None
+    estadoFan: int | None = None
+
+class EventEntry(BaseModel):
+    origem: str
+    id: str
+    evento: str
+    device: EventDevice
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -109,6 +121,36 @@ def init_db():
             ( 50, "DEBUG0"),
             ( 70, "DEBUG!"),
             (100, "TESTE!");
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        device_id TEXT NOT NULL,
+        recurso_id TEXT NOT NULL,
+        evento TEXT NOT NULL,
+        ip TEXT,
+        valor REAL,
+        status INTEGER,
+        estado INTEGER,
+        estado_fan INTEGER
+    )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_events_device
+        ON events(device_id)
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_events_recurso
+        ON events(device_id, recurso_id)
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_events_timestamp
+        ON events(timestamp)
     """)
 
     conn.commit()
@@ -344,6 +386,96 @@ def register_dns(register: DNSRegister):
         "hostname": fqdn,
         "ip": register.ip
     }
+
+@app.post("/api/event")
+def receive_event(event: EventEntry, request: Request):
+
+    ip = request.client.host
+
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+
+    conn = get_db()
+
+    cursor = conn.execute("""
+        INSERT INTO events (
+            timestamp,
+            device_id,
+            recurso_id,
+            evento,
+            ip,
+            valor,
+            status,
+            estado,
+            estado2
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        timestamp,
+        event.origem,
+        event.id,
+        event.evento,
+        ip,
+        event.device.valor,
+        event.device.status,
+        event.device.estado,
+        event.device.estadoFan
+    ))
+
+    conn.commit()
+
+    event_id = cursor.lastrowid
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "id": event_id
+    }
+
+@app.get("/api/history")
+def get_history(
+    origem: str,
+    recurso: str,
+    start: int | None = None,
+    end: int | None = None,
+    limit: int = Query(10000, ge=1, le=100000)
+):
+    conn = get_db()
+
+    query = """
+        SELECT
+            id,
+            timestamp,
+            device_id,
+            recurso_id,
+            evento,
+            valor,
+            status,
+            estado,
+            estado2
+        FROM events
+        WHERE device_id = ?
+          AND recurso_id = ?
+    """
+
+    params = [origem, recurso]
+
+    if start is not None:
+        query += " AND timestamp >= ?"
+        params.append(start)
+
+    if end is not None:
+        query += " AND timestamp <= ?"
+        params.append(end)
+
+    query += " ORDER BY timestamp ASC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+
+    conn.close()
+
+    return [dict(row) for row in rows]
 
 @app.get("/api/events")
 async def events(request: Request):
