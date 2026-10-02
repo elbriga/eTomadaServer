@@ -51,7 +51,7 @@ class DNSRegister(BaseModel):
 
 class EventDevice(BaseModel):
     valor: float | None = None
-    status: int | None = None
+    status: str = ""
     estado: int | None = None
     estadoFan: int | None = None
 
