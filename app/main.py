@@ -110,6 +110,7 @@ def init_db():
     """)
 
     conn.execute("""
+        DELETE FROM level;
         INSERT INTO level(id, nome) VALUES
             (  0, "!OFF!!"),
             (  1, "!CRIT!"),
@@ -118,10 +119,6 @@ def init_db():
             ( 50, "DEBUG0"),
             ( 70, "DEBUG!"),
             (100, "TESTE!");
-    """)
-
-    conn.execute("""
-        DROP TABLE events;
     """)
 
     conn.execute("""
