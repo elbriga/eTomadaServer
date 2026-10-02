@@ -387,7 +387,7 @@ def register_dns(register: DNSRegister):
         "ip": register.ip
     }
 
-@app.post("/api/event")
+@app.post("/api/evento")
 def receive_event(event: EventEntry, request: Request):
 
     ip = request.client.host
