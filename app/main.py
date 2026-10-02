@@ -124,6 +124,10 @@ def init_db():
     """)
 
     conn.execute("""
+        DROP TABLE events;
+    """)
+
+    conn.execute("""
     CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp INTEGER NOT NULL,
@@ -132,7 +136,7 @@ def init_db():
         evento TEXT NOT NULL,
         ip TEXT,
         valor REAL,
-        status INTEGER,
+        status TEXT,
         estado INTEGER,
         estado_fan INTEGER
     )
