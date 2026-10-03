@@ -469,7 +469,7 @@ def get_history(
         query += " AND timestamp <= ?"
         params.append(end)
 
-    query += " ORDER BY timestamp ASC LIMIT ?"
+    query += " ORDER BY timestamp ASC, id ASC LIMIT ?"
     params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
@@ -515,3 +515,28 @@ async def events(request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+@app.get("/historico", response_class=HTMLResponse)
+def history_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="historico.html",
+        context={}
+    )
+
+@app.get("/api/history/resources")
+def get_history_resources():
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT device_id, recurso_id,
+                   MAX(valor IS NOT NULL) AS has_valor,
+                   MAX(estado IS NOT NULL) AS has_estado,
+                   MAX(estado2 IS NOT NULL) AS has_estado2
+            FROM events
+            GROUP BY device_id, recurso_id
+            ORDER BY device_id, recurso_id
+        """).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
