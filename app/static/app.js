@@ -148,11 +148,18 @@ carregarNodos();
 carregarLogs();
 
 let reloadTimer = null;
+let quantosLogsAcumulei = 0;
 
 const events = new EventSource("/api/events");
 
 events.addEventListener("log", () => {
   clearTimeout(reloadTimer);
+
+  if (quantosLogsAcumulei++ > 8) {
+    quantosLogsAcumulei = 0;
+    carregarLogs();
+    return;
+  }
 
   reloadTimer = setTimeout(() => {
     carregarLogs();
