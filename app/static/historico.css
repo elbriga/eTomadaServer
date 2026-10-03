@@ -23,24 +23,24 @@
   width: 16px;
   height: 16px;
 }
-#history-chart svg {
+[data-role="history-chart"] svg {
   width: 100%;
   height: auto;
   display: block;
   touch-action: pan-y;
 }
-#history-chart {
+[data-role="history-chart"] {
   min-height: 200px;
 }
 #history-status[data-error="true"] {
   color: #b91c1c;
 }
 .history-note,
-#history-point {
+[data-role="history-point"] {
   font-size: 12px;
   color: #64748b;
 }
-#history-summary {
+[data-role="history-summary"] {
   color: #475569;
   font-size: 14px;
 }
@@ -78,5 +78,46 @@ summary {
   .status {
     width: 100%;
     margin: 0;
+  }
+}
+
+.chart-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.chart-heading label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.chart-close {
+  background: #64748b;
+  padding: 0 12px;
+}
+.chart-close:hover {
+  background: #475569;
+}
+.page-note {
+  margin: 16px 24px;
+}
+.chart-error {
+  color: #b91c1c;
+}
+@media (max-width: 600px) {
+  .chart-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .chart-controls {
+    width: 100%;
+    justify-content: space-between;
   }
 }

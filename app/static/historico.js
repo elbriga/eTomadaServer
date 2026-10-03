@@ -7,7 +7,9 @@ let requestController = null;
 let resourceController = null;
 let resourceVersion = 0;
 let busy = false;
-let chartData = null;
+const openedResources = new Map();
+const fieldChoices = new Map();
+let chartItems = [];
 let lastQuery = null;
 const fmt = (v) => v === null || v === undefined ? "—" : String(v);
 const dateText = (ts) => new Date(ts * 1000).toLocaleString("pt-BR");
@@ -24,17 +26,45 @@ function options(select, values, preferred) {
   select.replaceChildren(...values.map(value => new Option(value, value)));
   if (values.includes(preferred)) select.value = preferred;
 }
+
 function clearChart() {
-  chartData = null;
-  el("history-chart").replaceChildren();
-  el("history-rows").replaceChildren();
-  el("history-summary").textContent = "";
-  el("history-point").textContent = "";
+  chartItems = [];
+  el("history-charts").replaceChildren();
 }
 function invalidate() {
   requestController?.abort();
   lastQuery = null;
   clearChart();
+}
+function availableResources() {
+  return resources.filter(r => r.device_id === el("history-node").value);
+}
+function updateResources() {
+  const available = availableResources();
+  options(el("history-resource"), available.map(r => r.recurso_id), el("history-resource").value);
+  el("history-add").disabled = !available.length;
+}
+function addChart() {
+  const node = el("history-node").value;
+  const resource = availableResources().find(r => r.recurso_id === el("history-resource").value);
+  if (!resource) { status("Selecione um nodo e um recurso."); return; }
+  const key = JSON.stringify([node, resource.recurso_id]);
+  if (openedResources.has(key)) { status("Este recurso já está aberto."); return; }
+  openedResources.set(key, { ...resource, node });
+  loadHistory();
+}
+function closeChart(key) {
+  openedResources.delete(key);
+  // Cancela também resultados pendentes, para um gráfico fechado não reaparecer.
+  requestController?.abort();
+  requestController = null;
+  busy = false;
+  el("history-load").disabled = false;
+  const item = chartItems.find(item => item.key === key);
+  item?.card.remove();
+  chartItems = chartItems.filter(item => item.key !== key);
+  if (!openedResources.size) { lastQuery = null; status("Adicione um recurso para abrir um gráfico."); }
+  else loadHistory();
 }
 async function loadResources() {
   resourceController?.abort();
@@ -47,21 +77,10 @@ async function loadResources() {
     options(el("history-node"), [...new Set(data.map(r => r.device_id))], el("history-node").value);
     updateResources();
     if (!resources.length) status("Nenhum evento registrado ainda.");
-    else await loadHistory();
+    else status("Adicione um recurso para abrir um gráfico.");
   } catch (error) {
-    if (error.name !== "AbortError") status(`Erro ao listar recursos: ${error.message}. Clique em Atualizar para tentar novamente.`, true);
+    if (error.name !== "AbortError") status(`Erro ao listar recursos: ${error.message}`, true);
   }
-}
-function updateResources() {
-  const previous = el("history-resource").value;
-  const selected = resources.filter(r => r.device_id === el("history-node").value);
-  options(el("history-resource"), selected.map(r => r.recurso_id), previous);
-  updateFields();
-}
-function updateFields() {
-  const resource = resources.find(r => r.device_id === el("history-node").value && r.recurso_id === el("history-resource").value);
-  const allowed = Object.keys(fields).filter(f => resource?.[`has_${f}`]);
-  el("history-field").replaceChildren(...allowed.map(f => new Option(fields[f], f)));
 }
 function range() {
   if (el("history-period").value !== "custom") {
@@ -73,6 +92,55 @@ function range() {
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new Error("Informe um início anterior ao fim.");
   return { start: Math.floor(start), end: Math.floor(end) };
 }
+
+function makeCard(node, resource, rows, start, end, error) {
+  const card = document.createElement("section");
+  card.className = "history-card";
+  card.innerHTML = `<div class="chart-heading"><h2 data-role="chart-title"></h2><div class="chart-controls"><label>Campo <select data-role="field"></select></label><button type="button" class="chart-close" data-role="close">Fechar</button></div></div>
+    <p data-role="history-summary"></p><div data-role="history-chart"></div><p data-role="history-point"></p>
+    <details><summary>Eventos (até 200 mais recentes da consulta)</summary><div class="table-container"><table><thead><tr><th>Data/Hora</th><th>Evento</th><th>Valor</th><th>Status</th><th>Estado</th><th>Fan</th></tr></thead><tbody data-role="rows"></tbody></table></div></details>`;
+  const q = role => card.querySelector(`[data-role="${role}"]`);
+  const select = q("field");
+  const allowed = Object.keys(fields).filter(f => resource[`has_${f}`]);
+  select.replaceChildren(...allowed.map(f => new Option(fields[f], f)));
+  const key = JSON.stringify([node, resource.recurso_id]);
+  if (allowed.includes(fieldChoices.get(key))) select.value = fieldChoices.get(key);
+  select.disabled = !allowed.length || !!error;
+  const item = { key, card, data: null };
+  q("close").setAttribute("aria-label", `Fechar gráfico ${node} / ${resource.recurso_id}`);
+  q("close").addEventListener("click", () => closeChart(key));
+  function render() {
+    const field = select.value;
+    fieldChoices.set(key, field);
+    q("chart-title").textContent = `${node} / ${resource.recurso_id} — ${fields[field] || "Eventos"}`;
+    if (error) {
+      q("history-chart").textContent = `Erro ao carregar: ${error}`;
+      q("history-chart").classList.add("chart-error"); return;
+    }
+    const points = rows.filter(r => typeof r[field] === "number" && Number.isFinite(r[field]) && Number.isFinite(r.timestamp)).map(r => ({ x: r.timestamp, y: r[field], row: r }));
+    item.data = { points, start, end, field };
+    let text = `${dateText(start)} até ${dateText(end)} · ${rows.length} eventos`;
+    if (points.length) {
+      let min = Infinity, max = -Infinity;
+      for (const p of points) { min = Math.min(min, p.y); max = Math.max(max, p.y); }
+      text += ` · mínimo ${min} · máximo ${max} · última amostra ${points.at(-1).y}`;
+    }
+    if (rows.length >= LIMIT) text += " · limite atingido: reduza o período";
+    q("history-summary").textContent = text;
+    drawChart(card, item.data);
+  }
+  q("rows").replaceChildren(...rows.slice(-200).reverse().map(row => {
+    const tr = document.createElement("tr");
+    for (const value of [dateText(row.timestamp), row.evento, row.valor, row.status, row.estado, row.estado2]) {
+      const td = document.createElement("td"); td.textContent = fmt(value); tr.append(td);
+    }
+    return tr;
+  }));
+  select.addEventListener("change", render);
+  el("history-charts").append(card);
+  render();
+  return item;
+}
 async function loadHistory() {
   requestController?.abort();
   const controller = new AbortController();
@@ -80,38 +148,32 @@ async function loadHistory() {
   busy = true;
   el("history-load").disabled = true;
   try {
-    if (!el("history-node").value || !el("history-resource").value) {
-      clearChart(); status("Nenhum recurso disponível. Atualizar consulta novamente a lista."); return;
-    }
+    const selected = [...openedResources.values()];
+    if (!selected.length) { clearChart(); lastQuery = null; status("Adicione um recurso para abrir um gráfico."); return; }
+    // Calcula uma vez: todas as consultas e gráficos compartilham exatamente o eixo X.
     const { start, end } = range();
-    const field = el("history-field").value;
-    const node = el("history-node").value;
-    const resource = el("history-resource").value;
-    status("Carregando histórico…");
-    const params = new URLSearchParams({ origem: node, recurso: resource, start, end, limit: LIMIT });
-    const rows = await fetchJSON(`/api/history?${params}`, controller.signal);
-    if (controller !== requestController) return;
-    const points = rows.filter(r => typeof r[field] === "number" && Number.isFinite(r[field]) && Number.isFinite(r.timestamp)).map(r => ({ x: r.timestamp, y: r[field], row: r }));
-    chartData = { points, start, end, field };
-    lastQuery = { node, resource, field };
-    el("chart-title").textContent = `${node} / ${resource} — ${fields[field] || "Eventos"}`;
-    const values = points.map(p => p.y);
-    let summary = `${dateText(start)} até ${dateText(end)}`;
-    if (values.length) {
-      let min = Infinity, max = -Infinity;
-      for (const value of values) { min = Math.min(min, value); max = Math.max(max, value); }
-      summary += ` · mínimo ${min} · máximo ${max} · última amostra ${values[values.length - 1]}`;
-    }
-    el("history-summary").textContent = summary;
-    drawChart();
-    el("history-rows").replaceChildren(...rows.slice(-200).reverse().map(row => {
-      const tr = document.createElement("tr");
-      for (const value of [dateText(row.timestamp), row.evento, row.valor, row.status, row.estado, row.estado2]) {
-        const td = document.createElement("td"); td.textContent = fmt(value); tr.append(td);
+    status(`Carregando ${selected.length} gráficos…`);
+    const results = new Array(selected.length);
+    let next = 0;
+    // Limita a concorrência para não sobrecarregar o Raspberry Pi.
+    async function worker() {
+      while (next < selected.length && !controller.signal.aborted) {
+        const i = next++, resource = selected[i];
+        const params = new URLSearchParams({ origem: resource.node, recurso: resource.recurso_id, start, end, limit: LIMIT });
+        try { results[i] = { rows: await fetchJSON(`/api/history?${params}`, controller.signal) }; }
+        catch (error) {
+          if (error.name === "AbortError") throw error;
+          results[i] = { rows: [], error: error.message };
+        }
       }
-      return tr;
-    }));
-    status(`${rows.length} eventos · ${points.length} amostras${rows.length >= LIMIT ? " · limite atingido: reduza o período para ver todos os dados" : ""}`);
+    }
+    await Promise.all(Array.from({ length: Math.min(4, selected.length) }, worker));
+    if (controller !== requestController || controller.signal.aborted) return;
+    clearChart();
+    chartItems = selected.map((resource, i) => makeCard(resource.node, resource, results[i].rows, start, end, results[i].error));
+    lastQuery = { start, end };
+    const failed = results.filter(r => r.error).length;
+    status(`${selected.length} gráficos · ${results.reduce((n, r) => n + r.rows.length, 0)} eventos${failed ? ` · ${failed} consulta(s) com erro` : ""}`, !!failed);
   } catch (error) {
     if (error.name !== "AbortError" && controller === requestController) {
       clearChart(); status(`Erro ao carregar histórico: ${error.message}`, true);
@@ -126,7 +188,8 @@ function svgNode(tag, attrs = {}, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
-function drawChart() {
+function drawChart(card, chartData) {
+  const el = id => card.querySelector(`[data-role="${id}"]`);
   const container = el("history-chart");
   container.replaceChildren();
   if (!chartData?.points.length) {
@@ -170,10 +233,10 @@ function drawChart() {
   el("history-point").textContent = "Passe o ponteiro pelo gráfico para consultar uma amostra.";
   container.append(svg);
 }
+
+el("history-add").addEventListener("click", addChart);
 el("history-form").addEventListener("submit", event => { event.preventDefault(); resources.length ? loadHistory() : loadResources(); });
-el("history-node").addEventListener("change", () => { invalidate(); updateResources(); loadHistory(); });
-el("history-resource").addEventListener("change", () => { invalidate(); updateFields(); loadHistory(); });
-el("history-field").addEventListener("change", () => { invalidate(); loadHistory(); });
+el("history-node").addEventListener("change", updateResources);
 el("history-period").addEventListener("change", () => {
   invalidate();
   const custom = el("history-period").value === "custom";
@@ -186,5 +249,11 @@ const localInput = date => { const d = new Date(date.getTime() - date.getTimezon
 el("history-end").value = localInput(new Date());
 el("history-start").value = localInput(new Date(Date.now() - 86400000));
 setInterval(() => { if (el("history-auto").checked && !document.hidden && !busy && lastQuery) loadHistory(); }, 15000);
-new ResizeObserver(() => { if (chartData) drawChart(); }).observe(el("history-chart"));
+let lastWidth = 0;
+new ResizeObserver(entries => {
+  const width = entries[0].contentRect.width;
+  if (width === lastWidth) return;
+  lastWidth = width;
+  for (const item of chartItems) if (item.data) drawChart(item.card, item.data);
+}).observe(el("history-charts"));
 loadResources();

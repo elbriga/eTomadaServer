@@ -18,7 +18,7 @@
     <form id="history-form" class="filters">
       <div class="filter"><label for="history-node">Nodo</label><select id="history-node" required></select></div>
       <div class="filter"><label for="history-resource">Recurso</label><select id="history-resource" required></select></div>
-      <div class="filter"><label for="history-field">Campo</label><select id="history-field"><option value="valor">Valor</option><option value="estado">Estado</option><option value="estado2">Estado do fan</option></select></div>
+      <button id="history-add" type="button">Adicionar</button>
       <div class="filter"><label for="history-period">Período</label><select id="history-period"><option value="1">Última hora</option><option value="6">Últimas 6 horas</option><option value="24" selected>Últimas 24 horas</option><option value="168">Últimos 7 dias</option><option value="custom">Personalizado</option></select></div>
       <div id="custom-start" class="filter" hidden><label for="history-start">Início (hora local)</label><input id="history-start" type="datetime-local" /></div>
       <div id="custom-end" class="filter" hidden><label for="history-end">Fim (hora local)</label><input id="history-end" type="datetime-local" /></div>
@@ -26,14 +26,8 @@
       <label class="auto-label"><input id="history-auto" type="checkbox" /> Automático (15 s)</label>
       <p id="history-status" class="status" role="status" aria-live="polite">Carregando recursos…</p>
     </form>
-    <section class="history-card" aria-labelledby="chart-title">
-      <h2 id="chart-title">Histórico do recurso</h2>
-      <p id="history-summary"></p>
-      <div id="history-chart"></div>
-      <p id="history-point">Passe o ponteiro pelo gráfico para consultar uma amostra.</p>
-      <p class="history-note">Horários locais do navegador. O timestamp representa o recebimento no servidor. Intervalos entre amostras não confirmam que o dispositivo permaneceu online.</p>
-    </section>
-    <details class="history-card"><summary>Eventos recebidos (até 200 mais recentes da consulta)</summary><div class="table-container"><table><thead><tr><th>Data/Hora</th><th>Evento</th><th>Valor</th><th>Status</th><th>Estado</th><th>Fan</th></tr></thead><tbody id="history-rows"></tbody></table></div></details>
+    <p class="history-note page-note">Horários locais do navegador. O timestamp representa o recebimento no servidor. Todos os gráficos compartilham o mesmo eixo de tempo. Intervalos entre amostras não confirmam que o dispositivo permaneceu online.</p>
+    <div id="history-charts"></div>
   </main>
 </body>
 </html>
