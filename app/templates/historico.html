@@ -3,14 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Histórico — eTomada Server</title>
+  <title>eTomada Server - Histórico</title>
   <link rel="icon" href="/static/favicon.ico" />
   <link rel="stylesheet" href="/static/estilo.css" />
   <link rel="stylesheet" href="/static/historico.css" />
   <script src="/static/historico.js" defer></script>
 </head>
 <body>
-  <header><h1>eTomada Server</h1><nav><a href="/">Logs</a><a href="/historico" aria-current="page">Histórico</a></nav></header>
+  <header>
+    <h1>eTomada Server</h1>
+    <nav><a href="/">Logs</a><a href="/historico" aria-current="page">Histórico</a></nav>
+  </header>
   <main>
     <form id="history-form" class="filters">
       <div class="filter"><label for="history-node">Nodo</label><select id="history-node" required></select></div>
