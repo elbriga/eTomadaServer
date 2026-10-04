@@ -10,7 +10,7 @@ import json
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
@@ -60,6 +60,15 @@ class EventEntry(BaseModel):
     id: str
     evento: str
     device: EventDevice
+
+class SnapshotResource(BaseModel):
+    id: str = Field(min_length=1, max_length=32)
+    nome: str = Field(default="", max_length=32)
+    tipo: str = Field(default="", max_length=16)
+
+class SnapshotEntry(BaseModel):
+    device_id: str = Field(min_length=1, max_length=32)
+    recursos: list[SnapshotResource]
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -154,6 +163,16 @@ def init_db():
         ON events(timestamp)
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS resources (
+            device_id TEXT NOT NULL,
+            recurso_id TEXT NOT NULL,
+            nome TEXT NOT NULL DEFAULT '',
+            tipo TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (device_id, recurso_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -529,14 +548,66 @@ def get_history_resources():
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT device_id, recurso_id,
-                   MAX(valor IS NOT NULL) AS has_valor,
-                   MAX(estado IS NOT NULL) AS has_estado,
-                   MAX(estado2 IS NOT NULL) AS has_estado2
-            FROM events
-            GROUP BY device_id, recurso_id
-            ORDER BY device_id, recurso_id
+            SELECT
+                e.device_id,
+                e.recurso_id,
+                COALESCE(r.nome, '') AS nome,
+                COALESCE(r.tipo, '') AS tipo,
+                MAX(e.valor IS NOT NULL) AS has_valor,
+                MAX(e.estado IS NOT NULL) AS has_estado,
+                MAX(e.estado2 IS NOT NULL) AS has_estado2
+            FROM events e
+            LEFT JOIN resources r
+                ON r.device_id = e.device_id
+               AND r.recurso_id = e.recurso_id
+            GROUP BY
+                e.device_id,
+                e.recurso_id,
+                r.nome,
+                r.tipo
+            ORDER BY e.device_id, e.recurso_id
         """).fetchall()
+
         return [dict(row) for row in rows]
     finally:
         conn.close()
+
+@app.post("/api/snapshot")
+def receive_snapshot(snapshot: SnapshotEntry):
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+
+    conn = get_db()
+    try:
+        with conn:
+            conn.executemany("""
+                INSERT INTO resources (
+                    device_id,
+                    recurso_id,
+                    nome,
+                    tipo,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(device_id, recurso_id)
+                DO UPDATE SET
+                    nome = excluded.nome,
+                    tipo = excluded.tipo,
+                    updated_at = excluded.updated_at
+            """, [
+                (
+                    snapshot.device_id,
+                    recurso.id,
+                    recurso.nome,
+                    recurso.tipo,
+                    timestamp
+                )
+                for recurso in snapshot.recursos
+            ])
+    finally:
+        conn.close()
+
+    return {
+        "ok": True,
+        "device_id": snapshot.device_id,
+        "recursos": len(snapshot.recursos)
+    }
