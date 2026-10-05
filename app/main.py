@@ -8,7 +8,7 @@ import tempfile
 import asyncio
 import json
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -69,6 +69,17 @@ class SnapshotResource(BaseModel):
 class SnapshotEntry(BaseModel):
     device_id: str = Field(min_length=1, max_length=32)
     recursos: list[SnapshotResource]
+
+class HistoryScreenChart(BaseModel):
+    node: str = Field(min_length=1, max_length=32)
+    recurso_id: str = Field(min_length=1, max_length=32)
+    field: str | None = None
+
+class HistoryScreenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+class HistoryScreenUpdate(BaseModel):
+    charts: list[HistoryScreenChart] = Field(max_length=100)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -171,6 +182,13 @@ def init_db():
             tipo TEXT NOT NULL DEFAULT '',
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (device_id, recurso_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS history_screens (
+            name TEXT PRIMARY KEY,
+            charts_json TEXT NOT NULL DEFAULT '[]'
         )
     """)
     conn.commit()
@@ -569,6 +587,71 @@ def get_history_resources():
         """).fetchall()
 
         return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+@app.get("/api/history/screens")
+def get_history_screens():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT name, charts_json FROM history_screens ORDER BY name"
+        ).fetchall()
+        return [
+            {"name": row["name"], "charts": json.loads(row["charts_json"])}
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+@app.post("/api/history/screens", status_code=201)
+def create_history_screen(screen: HistoryScreenCreate):
+    name = screen.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Nome da tela vazio")
+    conn = get_db()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO history_screens (name, charts_json) VALUES (?, '[]')",
+                (name,),
+            )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Esta tela já existe")
+    finally:
+        conn.close()
+    return {"name": name, "charts": []}
+
+@app.put("/api/history/screens/{name}")
+def update_history_screen(name: str, screen: HistoryScreenUpdate):
+    charts_json = json.dumps(
+        [chart.model_dump() for chart in screen.charts],
+        ensure_ascii=False,
+    )
+    conn = get_db()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE history_screens SET charts_json = ? WHERE name = ?",
+                (charts_json, name),
+            )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Tela não encontrada")
+    finally:
+        conn.close()
+    return {"name": name, "charts": screen.charts}
+
+@app.delete("/api/history/screens/{name}", status_code=204)
+def delete_history_screen(name: str):
+    conn = get_db()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "DELETE FROM history_screens WHERE name = ?",
+                (name,),
+            )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Tela não encontrada")
     finally:
         conn.close()
 

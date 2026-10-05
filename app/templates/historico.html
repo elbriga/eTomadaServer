@@ -15,6 +15,12 @@
     <nav><a href="/">Logs</a><a href="/historico" aria-current="page">Histórico</a></nav>
   </header>
   <main>
+    <section class="screen-toolbar" aria-label="Telas do histórico">
+      <div class="filter"><label for="history-screen">Tela</label><select id="history-screen"></select></div>
+      <button id="history-screen-add" type="button">Nova tela</button>
+      <button id="history-screen-delete" class="secondary-button" type="button">Excluir tela</button>
+      <span id="history-screen-status" role="status" aria-live="polite"></span>
+    </section>
     <form id="history-form" class="filters">
       <div class="filter"><label for="history-node">Nodo</label><select id="history-node" required></select></div>
       <div class="filter"><label for="history-resource">Recurso</label><select id="history-resource" required></select></div>

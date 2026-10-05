@@ -9,6 +9,9 @@ let resourceVersion = 0;
 let busy = false;
 const openedResources = new Map();
 const fieldChoices = new Map();
+let screens = [];
+let activeScreen = null;
+let screenSaveTimer = null;
 let chartItems = [];
 let lastQuery = null;
 const fmt = (v) => (v === null || v === undefined ? "—" : String(v));
@@ -21,6 +24,29 @@ async function fetchJSON(url, signal) {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+async function screenRequest(method, name, body) {
+  const url =
+    name === undefined
+      ? "/api/history/screens"
+      : `/api/history/screens/${encodeURIComponent(name)}`;
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.detail || `HTTP ${response.status}`);
+  }
+  return response.status === 204 ? null : response.json();
+}
+function screenChartKey(node, resourceId) {
+  return JSON.stringify([activeScreen, node, resourceId]);
+}
+function setScreenStatus(message, error = false) {
+  el("history-screen-status").textContent = message;
+  el("history-screen-status").dataset.error = String(error);
 }
 function options(select, values, preferred) {
   select.replaceChildren(...values.map((value) => new Option(value, value)));
@@ -56,7 +82,7 @@ function updateResources() {
 
   el("history-add").disabled = !available.length;
 }
-function addChart() {
+async function addChart() {
   const node = el("history-node").value;
   const resource = availableResources().find(
     (r) => r.recurso_id === el("history-resource").value,
@@ -71,7 +97,8 @@ function addChart() {
     return;
   }
   openedResources.set(key, { ...resource, node });
-  loadHistory();
+  await loadHistory();
+  scheduleScreenSave();
 }
 function closeChart(key) {
   openedResources.delete(key);
@@ -83,6 +110,7 @@ function closeChart(key) {
   const item = chartItems.find((item) => item.key === key);
   item?.card.remove();
   chartItems = chartItems.filter((item) => item.key !== key);
+  scheduleScreenSave();
   if (!openedResources.size) {
     lastQuery = null;
     status("Adicione um recurso para abrir um gráfico.");
@@ -135,8 +163,9 @@ function makeCard(node, resource, rows, start, end, error) {
   const allowed = Object.keys(fields).filter((f) => resource[`has_${f}`]);
   select.replaceChildren(...allowed.map((f) => new Option(fields[f], f)));
   const key = JSON.stringify([node, resource.recurso_id]);
-  if (allowed.includes(fieldChoices.get(key)))
-    select.value = fieldChoices.get(key);
+  const choiceKey = screenChartKey(node, resource.recurso_id);
+  if (allowed.includes(fieldChoices.get(choiceKey)))
+    select.value = fieldChoices.get(choiceKey);
   select.disabled = !allowed.length || !!error;
   const item = { key, card, data: null };
   q("close").setAttribute(
@@ -146,7 +175,7 @@ function makeCard(node, resource, rows, start, end, error) {
   q("close").addEventListener("click", () => closeChart(key));
   function render() {
     const field = select.value;
-    fieldChoices.set(key, field);
+    fieldChoices.set(choiceKey, field);
     q("chart-title").textContent =
       `${node} / ${resourceLabel(resource)} — ${fields[field] || "Eventos"}`;
     if (error) {
@@ -198,7 +227,10 @@ function makeCard(node, resource, rows, start, end, error) {
         return tr;
       }),
   );
-  select.addEventListener("change", render);
+  select.addEventListener("change", () => {
+    render();
+    scheduleScreenSave();
+  });
   el("history-charts").append(card);
   render();
   return item;
@@ -434,7 +466,134 @@ function drawChart(card, chartData) {
   container.append(svg);
 }
 
+async function saveScreen() {
+  if (!activeScreen) return;
+  const charts = [...openedResources.values()].map((resource) => ({
+    node: resource.node,
+    recurso_id: resource.recurso_id,
+    field:
+      fieldChoices.get(screenChartKey(resource.node, resource.recurso_id)) ||
+      null,
+  }));
+  await screenRequest("PUT", activeScreen, { charts });
+  setScreenStatus("Tela salva");
+}
+function scheduleScreenSave() {
+  if (!activeScreen) return;
+  clearTimeout(screenSaveTimer);
+  setScreenStatus("Salvando…");
+  screenSaveTimer = setTimeout(() => {
+    saveScreen().catch((error) =>
+      setScreenStatus(`Erro ao salvar tela: ${error.message}`, true),
+    );
+  }, 250);
+}
+function renderScreenOptions(selected) {
+  const select = el("history-screen");
+  select.replaceChildren(
+    ...screens.map((screen) => new Option(screen.name, screen.name)),
+  );
+  select.value = selected;
+  el("history-screen-delete").disabled = screens.length < 2;
+}
+async function activateScreen(name, savePrevious = true) {
+  if (!screens.some((screen) => screen.name === name)) return;
+  clearTimeout(screenSaveTimer);
+  if (savePrevious && activeScreen) {
+    try {
+      await saveScreen();
+    } catch (error) {
+      el("history-screen").value = activeScreen;
+      setScreenStatus(`Erro ao salvar tela: ${error.message}`, true);
+      return;
+    }
+  }
+  requestController?.abort();
+  requestController = null;
+  busy = false;
+  el("history-load").disabled = false;
+  activeScreen = name;
+  localStorage.setItem("history-active-screen", name);
+  el("history-screen").value = name;
+  openedResources.clear();
+  chartItems = [];
+  el("history-charts").replaceChildren();
+
+  const screen = screens.find((item) => item.name === name);
+  const restored = (screen?.charts || []).flatMap((chart) => {
+    const resource = resources.find(
+      (item) =>
+        item.device_id === chart.node && item.recurso_id === chart.recurso_id,
+    );
+    if (!resource) return [];
+    openedResources.set(JSON.stringify([chart.node, chart.recurso_id]), {
+      ...resource,
+      node: chart.node,
+    });
+    if (chart.field)
+      fieldChoices.set(
+        screenChartKey(chart.node, chart.recurso_id),
+        chart.field,
+      );
+    return [chart];
+  });
+  if (restored.length) el("history-node").value = restored[0].node;
+  updateResources();
+  renderScreenOptions(name);
+  setScreenStatus("Tela carregada");
+  await loadHistory();
+}
+async function loadScreens() {
+  try {
+    screens = await screenRequest("GET");
+    if (!screens.length) {
+      screens.push(
+        await screenRequest("POST", undefined, { name: "Principal" }),
+      );
+    }
+    const preferred = localStorage.getItem("history-active-screen");
+    const selected = screens.some((screen) => screen.name === preferred)
+      ? preferred
+      : screens[0].name;
+    renderScreenOptions(selected);
+    await activateScreen(selected, false);
+  } catch (error) {
+    setScreenStatus(`Erro ao carregar telas: ${error.message}`, true);
+  }
+}
+async function createScreen() {
+  const name = prompt("Nome da nova tela:")?.trim();
+  if (!name) return;
+  try {
+    const screen = await screenRequest("POST", undefined, { name });
+    screens.push(screen);
+    renderScreenOptions(screen.name);
+    await activateScreen(screen.name);
+  } catch (error) {
+    setScreenStatus(`Não foi possível criar a tela: ${error.message}`, true);
+  }
+}
+async function deleteScreen() {
+  if (screens.length < 2 || !activeScreen) return;
+  if (!confirm(`Excluir a tela "${activeScreen}"?`)) return;
+  const deleted = activeScreen;
+  try {
+    await screenRequest("DELETE", deleted);
+    screens = screens.filter((screen) => screen.name !== deleted);
+    const next = screens[0].name;
+    renderScreenOptions(next);
+    await activateScreen(next, false);
+  } catch (error) {
+    setScreenStatus(`Não foi possível excluir a tela: ${error.message}`, true);
+  }
+}
+
 el("history-add").addEventListener("click", addChart);
+el("history-screen").addEventListener("change", (event) =>
+  activateScreen(event.target.value),
+);
+el("history-screen-add").addEventListener("click", createScreen);
+el("history-screen-delete").addEventListener("click", deleteScreen);
 el("history-form").addEventListener("submit", (event) => {
   event.preventDefault();
   resources.length ? loadHistory() : loadResources();
@@ -470,7 +629,11 @@ new ResizeObserver((entries) => {
   lastWidth = width;
   for (const item of chartItems) if (item.data) drawChart(item.card, item.data);
 }).observe(el("history-charts"));
-loadResources();
+async function initializeHistory() {
+  await loadResources();
+  await loadScreens();
+}
+initializeHistory();
 
 function resourceLabel(resource) {
   const nome = resource.nome?.trim();
