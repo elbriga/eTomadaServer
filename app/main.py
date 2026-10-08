@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import base64
+import binascii
+import hmac
 import sqlite3
 
 import os
@@ -9,7 +12,7 @@ import asyncio
 import json
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from fastapi.templating import Jinja2Templates
@@ -23,6 +26,51 @@ DNS_DOMAIN = "etomada"
 DB_PATH = Path("/app/data/logs.db")
 
 app = FastAPI(title="eTomada Server")
+
+
+def valid_basic_auth(authorization: str, username: str, password: str) -> bool:
+    scheme, separator, credentials = authorization.partition(" ")
+    if scheme.lower() != "basic" or not separator or not credentials:
+        return False
+
+    try:
+        decoded = base64.b64decode(credentials, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return False
+
+    supplied_username, separator, supplied_password = decoded.partition(":")
+    if not separator:
+        return False
+
+    return bool(
+        hmac.compare_digest(supplied_username, username)
+        & hmac.compare_digest(supplied_password, password)
+    )
+
+
+@app.middleware("http")
+async def authenticate_cloudflare_requests(request: Request, call_next):
+    if "cf-connecting-ip" not in request.headers:
+        return await call_next(request)
+
+    username = os.environ.get("WEB_AUTH_USERNAME", "")
+    password = os.environ.get("WEB_AUTH_PASSWORD", "")
+    if not username or not password:
+        return PlainTextResponse(
+            "Autenticacao externa nao configurada.",
+            status_code=503,
+        )
+
+    authorization = request.headers.get("authorization", "")
+    if not valid_basic_auth(authorization, username, password):
+        return PlainTextResponse(
+            "Autenticacao necessaria.",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="eTomada", charset="UTF-8"'},
+        )
+
+    return await call_next(request)
+
 
 sse_clients: set[asyncio.Queue] = set()
 
