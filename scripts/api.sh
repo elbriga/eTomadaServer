@@ -21,13 +21,18 @@ if [ ! -z "$JSON" ]; then
     if [ "$MODO_DOWNLOAD" == "1" ]; then
         echo "> MODO_DOWNLOAD" >&2
         curl -s -v -X POST "$URL" -H "Content-Type: application/json" -d "$JSON"
+        RET=$?
     else
         curl -s -v -X POST "$URL" -H "Content-Type: application/json" -d "$JSON" | jq .
+        RET=${PIPESTATUS[0]} 
     fi
 else
     echo "> GET para [$URL]" >&2
     curl -s -v "$URL" | jq .
+    RET=${PIPESTATUS[0]} 
 fi
 
 echo >&2
 echo >&2
+
+exit $RET
