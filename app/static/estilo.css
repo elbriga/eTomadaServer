@@ -142,6 +142,7 @@ tr:hover {
 
 .message {
   font-family: monospace;
+  word-break: break-word;
 }
 
 .log-crit {
