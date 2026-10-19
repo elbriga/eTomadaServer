@@ -68,6 +68,10 @@ async function carregarLogs() {
     const tr = document.createElement("tr");
     tr.style.backgroundColor = getNodeColor(log.device_id);
     const levelClass = "log-" + log.level.toLowerCase().replaceAll("!", "");
+    const messageHtml = escapeHtml(log.message || "").replace(
+      /\[[^\[\]]*\]/g,
+      "<strong>$&</strong>",
+    );
     tr.innerHTML = `
             <td class="timestamp">
                 ${formataData(escapeHtml(log.timestamp))}
@@ -94,7 +98,7 @@ async function carregarLogs() {
             </td>
 
             <td class="message">
-                ${escapeHtml(log.message)}
+                ${messageHtml}
             </td>
         `;
 
