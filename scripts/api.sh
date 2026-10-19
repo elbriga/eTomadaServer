@@ -5,8 +5,8 @@ ENDPOINT=$2
 JSON=$3
 
 uso() {
-    echo "USO: ./api.sh HOST [ENDPOINT] [JSON]"
-    echo
+    echo "USO: ./api.sh HOST [ENDPOINT] [JSON]" >&2
+    echo >&2
     exit 1
 }
 [[ -z "$HOST" ]] && uso
@@ -16,17 +16,18 @@ uso() {
 URL="http://$HOST/api/$ENDPOINT"
 
 if [ ! -z "$JSON" ]; then
-    echo "POST para [$URL]"
+    echo "> POST para [$URL]" >&2
     echo "$JSON" | grep -q "\"getFile\":\"" && MODO_DOWNLOAD=1
     if [ "$MODO_DOWNLOAD" == "1" ]; then
+        echo "> MODO_DOWNLOAD" >&2
         curl -s -v -X POST "$URL" -H "Content-Type: application/json" -d "$JSON"
     else
         curl -s -v -X POST "$URL" -H "Content-Type: application/json" -d "$JSON" | jq .
     fi
 else
-    echo "GET para [$URL]"
+    echo "> GET para [$URL]" >&2
     curl -s -v "$URL" | jq .
 fi
 
-echo
-echo
+echo >&2
+echo >&2
