@@ -83,20 +83,20 @@ async function carregarLogs() {
                 ${escapeHtml(log.ip)}
             </td>
 
-            <td class="device">
-                ${escapeHtml(log.device_id)}
-            </td>
-
-            <td class="level ${levelClass}">
-                ${escapeHtml(log.level)}
+            <td>
+                ${formatUptime(log.uptime)}
             </td>
 
             <td class="module">
                 ${escapeHtml(log.module || "")}
             </td>
 
-            <td>
-                ${formatUptime(log.uptime)}
+            <td class="level ${levelClass}">
+                ${escapeHtml(log.level)}
+            </td>
+
+            <td class="device">
+                ${escapeHtml(log.device_id)}
             </td>
 
             <td class="message">
