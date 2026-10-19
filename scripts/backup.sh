@@ -1,9 +1,11 @@
 #!/bin/bash
 
+NUMBACKUPS=7
+
 BASEDIR=/var/lib/eTomadaServer/backup
 NODOS=/etc/etomada.hosts
 FILES="automacoes nodosRemotos recursosRemotos"
-NUMBACKUPS=7
+API="bash /usr/local/bin/api.sh"
 
 # Obtém a data e hora atual no formato AAAAMM_DD-HHMMSS (Ex: 202610_18-215100)
 AGORA=$(date +"%Y%m_%d-%H%M%S")
@@ -17,7 +19,7 @@ for NODO in $(cat "$NODOS"); do
     
     # 1. Faz o teste da API salvando com timestamp
     FILE_SNAPSHOT="$DIR/snapshot_$AGORA.json"
-    if api.sh "$NODO" > $FILE_SNAPSHOT 2> /dev/null; then
+    if $API "$NODO" > $FILE_SNAPSHOT 2> /dev/null; then
         # Testar se o nodo é Full
         if grep -qE '"api": *?"Full"' "$FILE_SNAPSHOT"; then
             echo "# Nodo $NODO FULL > Fazer backup:" >&2
@@ -25,7 +27,7 @@ for NODO in $(cat "$NODOS"); do
             # 2. Busca cada um dos arquivos com timestamp
             for FILE in $FILES; do
                 echo ">>> Buscando $NODO:/$FILE.json" >&2
-                api.sh "$NODO" files "{\"getFile\":\"$FILE.json\"}" > "$DIR/${FILE}_$AGORA.json" 2> /dev/null
+                $API "$NODO" files "{\"getFile\":\"$FILE.json\"}" > "$DIR/${FILE}_$AGORA.json" 2> /dev/null
             done
             
             # 3. ROTINA DE ROTAÇÃO: Mantém apenas os $NUMBACKUPS mais recentes
